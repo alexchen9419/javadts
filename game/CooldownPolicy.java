@@ -3,51 +3,56 @@ package game;
 import java.util.HashMap;
 import java.util.Map;
 
-// Helper to manage cooldowns per ability instance or type?
-// Diagram shows CooldownPolicy as a class.
-// Requirements: "CritShield(100, 10s)", "Events... OnCrit...".
-// "暴擊觸盾（有冷卻）：10s 冷卻".
-// So usually the Ability instance holds the CooldownPolicy.
+/**
+ * 冷卻時間管理策略類
+ * 用於管理技能的冷卻時間，防止技能被頻繁觸發
+ * 通常由技能實例持有，用於實現技能的冷卻機制
+ * 
+ * 需求示例："CritShield(100, 10s)" - 暴擊觸盾有 10 秒冷卻時間
+ */
 public class CooldownPolicy {
+    // 上次觸發時間戳（毫秒），-1 表示從未觸發
     private long lastTriggerTime = -1;
-    private final long cooldownDurationMs; // Simplified to ms or separate ticks
+    // 冷卻持續時間（毫秒）
+    private final long cooldownDurationMs;
 
+    /**
+     * 構造函數
+     * @param cooldownDurationMs 冷卻時間（毫秒）
+     */
     public CooldownPolicy(long cooldownDurationMs) {
         this.cooldownDurationMs = cooldownDurationMs;
     }
 
+    /**
+     * 檢查技能是否準備就緒（冷卻是否完成）
+     * @param e 實體參數（此實現中未使用，但保留以符合設計圖）
+     * @return true 如果技能可以使用，false 如果仍在冷卻中
+     * 
+     * 注意：此實現使用系統時鐘（System.currentTimeMillis）來簡化邏輯
+     * 在實際遊戲中，可能需要使用遊戲時間或時間步進機制
+     */
     public boolean ready(Entity e) {
-        // e is unused in this simple policy, but diagram has it signature: ready(e:
-        // Entity)
-        // We might use "Game Time" from context?
-        // But here we'll just track system time or simulated time.
-        // Let's rely on System.currentTimeMillis() for simplicty unless 't' in logs
-        // implies logic steps.
-        // The logs use 't:1', 't:2'. This implies abstract time steps.
-        // I should probably track 'lastTriggerTime' in terms of ticks if provided, or
-        // ms.
-        // The "10s" suggests real time or game time units.
-        // I will assume for this exercise we can allow passing current time or simple
-        // check.
-        // But wait, the method signature is `ready(e: Entity)`. The Entity doesn't
-        // carry time.
-        // Maybe Entity or Context provides time.
-        // Let's use System.currentTimeMillis for the mock implementation in Main.
+        // 如果從未觸發過，則立即可用
         if (lastTriggerTime == -1)
             return true;
-        // In a real system, we'd pass 't' or 'GameContext'.
-        // Since I can't change the signature easily if I stick strictly to diagram,
-        // I'll rely on static clock or stored state.
-        // Strict adherence to diagram: ready(e: Entity).
-        // I'll stick to wall clock for simplicity in Main demo.
+        // 檢查當前時間與上次觸發時間的間隔是否超過冷卻時間
         return (System.currentTimeMillis() - lastTriggerTime) >= cooldownDurationMs;
     }
 
+    /**
+     * 消耗技能使用次數，記錄觸發時間
+     * 在技能成功觸發後調用，開始冷卻計時
+     * @param e 實體參數
+     */
     public void consume(Entity e) {
         this.lastTriggerTime = System.currentTimeMillis();
     }
 
-    // Extra method for testing with manual time
+    /**
+     * 設置上次觸發時間（用於測試）
+     * @param t 時間戳
+     */
     public void setLastTriggerTime(long t) {
         this.lastTriggerTime = t;
     }

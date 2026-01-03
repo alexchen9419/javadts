@@ -13,13 +13,22 @@ import java.util.stream.Collectors;
 public class Entity {
     /** 護盾值 */
     public int shield;
-    
+
+    /** 最大生命值 */
+    public int maxHp;
+
+    /** 當前生命值 */
+    public int currentHp;
+
+    /** 元素屬性 */
+    public Element element;
+
     /** 增益效果列表（用於顯示，從技能列表衍生） */
     public List<String> buffs = new ArrayList<>();
 
     /** 附加在此實體上的所有技能 */
     public List<Ability> abilities = new ArrayList<>();
-    
+
     /** 戰鬥日誌記錄器 */
     public BattleLog log;
 
@@ -28,18 +37,34 @@ public class Entity {
 
     /**
      * 構造函數
-     * @param log 戰鬥日誌記錄器
+     * 
+     * @param log     戰鬥日誌記錄器
+     * @param name    實體名稱 (未實作，暫時不存)
+     * @param maxHp   最大生命值
+     * @param element 元素屬性
      */
-    public Entity(BattleLog log) {
+    public Entity(BattleLog log, int maxHp, Element element) {
         this.log = log;
         this.baseStats = new StatContext();
         this.shield = 0;
+        this.maxHp = maxHp;
+        this.currentHp = maxHp;
+        this.element = element;
+    }
+
+    /**
+     * 舊的構造函數 (為了兼容現有代碼)
+     * 默認為 1000 HP, 無屬性
+     */
+    public Entity(BattleLog log) {
+        this(log, 1000, Element.NONE);
     }
 
     /**
      * 添加技能到實體
      * 注意：此方法只將技能添加到列表中
      * 調用者需要單獨調用 ability.onAttach(entity, ctx) 來完成技能的初始化
+     * 
      * @param a 要添加的技能
      */
     public void addAbility(Ability a) {
@@ -52,6 +77,7 @@ public class Entity {
 
     /**
      * 從實體移除技能
+     * 
      * @param a 要移除的技能
      */
     public void removeAbility(Ability a) {
@@ -61,6 +87,7 @@ public class Entity {
     /**
      * 應用修飾器到基礎屬性
      * 永久性地修改實體的基礎屬性值
+     * 
      * @param m 要應用的修飾器
      */
     public void applyModifier(MyModifier m) {
@@ -70,13 +97,40 @@ public class Entity {
 
     /**
      * 增加護盾值
+     * 
      * @param amount 要增加的護盾量
-     * 注意：日誌記錄由技能負責（見 CritShieldAbility）
+     *               注意：日誌記錄由技能負責（見 CritShieldAbility）
      */
     public void addShield(int amount) {
         this.shield += amount;
         // 日誌記錄在技能層面處理，不在此處記錄
         // 示例："evt: OnCrit, ability: CRIT_SHIELD, effect: 100 shield"
+    }
+
+    /**
+     * 受到傷害
+     * 優先扣除護盾，剩餘傷害扣除 HP
+     * 
+     * @param amount 傷害量
+     */
+    public void takeDamage(int amount) {
+        int remainingDamage = amount;
+
+        // 先扣盾
+        if (shield > 0) {
+            if (shield >= remainingDamage) {
+                shield -= remainingDamage;
+                remainingDamage = 0;
+            } else {
+                remainingDamage -= shield;
+                shield = 0;
+            }
+        }
+
+        // 再扣血
+        if (remainingDamage > 0) {
+            currentHp = Math.max(0, currentHp - remainingDamage);
+        }
     }
 
     /**
@@ -138,6 +192,7 @@ public class Entity {
 
     /**
      * 轉換為字符串表示
+     * 
      * @return 格式化的實體狀態字符串，包含護盾值和增益效果列表
      *         示例："shield: 200, buffs:AURA_ATK_UP"
      */
@@ -150,6 +205,7 @@ public class Entity {
                 .distinct()
                 .collect(Collectors.joining(","));
 
-        return String.format("shield: %d, buffs:%s", shield, buffList);
+        return String.format("HP: %d/%d, Shield: %d, Element: %s, Buffs:%s",
+                currentHp, maxHp, shield, element.getName(), buffList);
     }
 }

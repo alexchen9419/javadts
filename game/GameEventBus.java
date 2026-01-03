@@ -14,15 +14,17 @@ import java.util.function.Consumer;
 public interface GameEventBus {
     /**
      * 發布事件
+     * 
      * @param event 要發布的事件對象
      */
     void publish(Object event);
 
     /**
      * 訂閱特定類型的事件
+     * 
      * @param eventType 要訂閱的事件類型
-     * @param handler 事件處理函數
-     * @param <T> 事件類型參數
+     * @param handler   事件處理函數
+     * @param <T>       事件類型參數
      */
     <T> void subscribe(Class<T> eventType, Consumer<T> handler);
 
@@ -42,7 +44,9 @@ public interface GameEventBus {
             if (subscribers.containsKey(type)) {
                 for (Consumer<?> handler : subscribers.get(type)) {
                     // 類型轉換在這裡是安全的，因為我們在 subscribe 中強制了類型安全
-                    ((Consumer<Object>) handler).accept(event);
+                    @SuppressWarnings("unchecked")
+                    Consumer<Object> eventHandler = (Consumer<Object>) handler;
+                    eventHandler.accept(event);
                 }
             }
         }

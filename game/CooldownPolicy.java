@@ -5,15 +5,21 @@ import java.util.Map;
 
 /**
  * 冷卻時間管理策略類
- * 用於管理技能的冷卻時間，防止技能被頻繁觸發
- * 通常由技能實例持有，用於實現技能的冷卻機制
- * 
- * 需求示例："CritShield(100, 10s)" - 暴擊觸盾有 10 秒冷卻時間
+ *
+ * 為技能實現冷卻機制，防止技能被過度頻繁地觸發。
+ * 使用系統時鐘追蹤上次觸發時間，判斷冷卻是否完成。
+ *
+ * 使用場景示例：
+ * - "CritShield(200, 5000ms)" - 暴擊護盾有 5 秒冷卻
+ * - 防止單次事件（如暴擊）在短時間內多次觸發同個技能
+ *
+ * @author RuneRise System
  */
 public class CooldownPolicy {
     // 上次觸發時間戳（毫秒），-1 表示從未觸發
     private long lastTriggerTime = -1;
-    // 冷卻持續時間（毫秒）
+    
+    // 冷卻持續時間（毫秒），決定相隔多長時間後才能再次觸發
     private final long cooldownDurationMs;
 
     /**
@@ -26,24 +32,34 @@ public class CooldownPolicy {
 
     /**
      * 檢查技能是否準備就緒（冷卻是否完成）
-     * @param e 實體參數（此實現中未使用，但保留以符合設計圖）
-     * @return true 如果技能可以使用，false 如果仍在冷卻中
+     *
+     * 邏輯：
+     * - 若從未觸發過（lastTriggerTime == -1），立即可用
+     * - 若已觸發過，比較當前時間與上次觸發時間的間隔
+     * - 若間隔 >= 冷卻時間，則準備就緒
+     *
+     * @param e 實體參數（此實現中未使用，但保留供擴展）
+     * @return true 如果冷卻已完成且技能可用，false 如果仍在冷卻中
      * 
-     * 注意：此實現使用系統時鐘（System.currentTimeMillis）來簡化邏輯
-     * 在實際遊戲中，可能需要使用遊戲時間或時間步進機制
+     * @note 此實現使用系統時鐘 {@link System#currentTimeMillis()}
+     *       在實際遊戲中可能需要使用遊戲時間或固定時間步進
      */
     public boolean ready(Entity e) {
-        // 如果從未觸發過，則立即可用
+        // 從未觸發過，立即可用
         if (lastTriggerTime == -1)
             return true;
-        // 檢查當前時間與上次觸發時間的間隔是否超過冷卻時間
-        return (System.currentTimeMillis() - lastTriggerTime) >= cooldownDurationMs;
+        // 已觸發過，檢查冷卻時間是否已過
+        long now = System.currentTimeMillis();
+        return now - lastTriggerTime >= cooldownDurationMs;
     }
 
     /**
-     * 消耗技能使用次數，記錄觸發時間
-     * 在技能成功觸發後調用，開始冷卻計時
-     * @param e 實體參數
+     * 記錄技能觸發時間，開始冷卻倒計時
+     *
+     * 應在技能成功觸發後調用，開始冷卻計時。
+     * 記錄的時間戳用於後續的 ready() 判定。
+     * 
+     * @param e 實體參數（此實現中未使用）
      */
     public void consume(Entity e) {
         this.lastTriggerTime = System.currentTimeMillis();

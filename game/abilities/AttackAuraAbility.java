@@ -5,28 +5,40 @@ import java.util.List;
 
 /**
  * 攻擊光環技能
- * 為範圍內的盟友提供攻擊力加成
- * 在每次 Tick 事件時，檢查範圍內的盟友並應用光環效果
- * 
- * 特殊機制：
- * - PVP 模式下，光環效果有 5% 的上限
- * - 多個攻擊光環效果會互斥，只有最強的那個會生效
+ *
+ * 為範圍內的盟友提供攻擊力加成。光環每次 Tick 事件時檢查範圍內的盟友，
+ * 並為他們應用攻擊力倍率修飾。
+ *
+ * 核心機制：
+ * 1. 訂閱 Tick 事件，每次遊戲時刻都檢查一次
+ * 2. 查詢範圍內的盟友，為其動態生成光環效果
+ * 3. 在 PVP 模式下限制光環效果上限（最多 +5%）
+ * 4. 多個攻擊光環的互斥機制由 Entity.getFinalStats() 實現
+ *
+ * 使用範例：
+ * - AttackAura("AURA_KNIGHT", 1.10, 5.0) - +10% 攻擊，範圍 5 米
+ * - 在 PVP 下自動限制為 +5%
+ *
+ * @author RuneRise Ability System
  */
 public class AttackAuraAbility implements Ability {
     /** 技能唯一識別碼 */
     private final String id;
-    /** 攻擊力乘數（如 1.10 表示 +10%） */
+    
+    /** 攻擊力乘數（如 1.10 表示 +10% 攻擊力） */
     private final double multiplier;
-    /** 光環作用範圍（半徑） */
+    
+    /** 光環作用範圍（半徑，決定盟友是否能受到光環效果） */
     private final double radius;
-    /** 遊戲上下文 */
+    
+    /** 遊戲上下文：用於訪問事件總線和區域服務 */
     private GameContext ctx;
 
     /**
      * 構造函數
-     * @param id 技能 ID
+     * @param id 技能的唯一識別碼
      * @param multiplier 攻擊力乘數（如 1.10 表示 +10%）
-     * @param radius 光環作用範圍
+     * @param radius 光環作用範圍（距離單位）
      */
     public AttackAuraAbility(String id, double multiplier, double radius) {
         this.id = id;
@@ -41,33 +53,31 @@ public class AttackAuraAbility implements Ability {
 
     @Override
     public BuffCategory category() {
-        // 此技能本身是光環源，分類為 OTHER
-        // 實際的光環效果由 AuraEffectAbility 提供
+        // 此實例是光環源，分類為 OTHER（不參與互斥比較）
+        // 實際的光環效果由內部 AuraEffectAbility 提供
         return BuffCategory.OTHER;
     }
 
     @Override
     public void onAttach(Entity self, GameContext ctx) {
         this.ctx = ctx;
-        // 訂閱 Tick 事件，每次 Tick 時檢查範圍內的盟友並應用光環效果
+        // 訂閱遊戲 Tick 事件，每個時刻都檢查盟友
         ctx.bus.subscribe(Events.Tick.class, event -> {
-            // 邏輯：查找範圍內的盟友，為他們應用光環效果
+            // 查找範圍內的所有盟友
             List<Entity> allies = ctx.area.alliesWithin(self, radius);
             for (Entity ally : allies) {
-                // 檢查盟友是否已經有來自此源的效果
-                // 為了簡化，我們假設如果缺少就添加，如果已存在則不做任何事
-                // 效果的唯一 ID："EFFECT_" + 技能 ID
+                // 檢查該盟友是否已經有來自此光環源的效果
                 String effectId = "EFFECT_" + id;
-                boolean hasIt = ally.abilities.stream().anyMatch(a -> a.id().equals(effectId));
+                boolean hasEffect = ally.abilities.stream()
+                        .anyMatch(a -> a.id().equals(effectId));
 
-                if (!hasIt) {
-                    // 創建並添加光環效果
+                if (!hasEffect) {
+                    // 盟友還沒有此光環效果，創建並應用
                     AuraEffectAbility effect = new AuraEffectAbility(effectId, multiplier);
                     ally.addAbility(effect);
-                    // 手動調用 onAttach，因為 Entity.addAbility 不會自動調用
-                    effect.onAttach(ally, ctx);
+                    effect.onAttach(ally, ctx);  // 初始化效果
 
-                    // 記錄日誌：光環效果的應用
+                    // 記錄到戰鬥日誌
                     ally.log.add(new LogEntry(0, "Tick", id, "Applied " + effectId));
                 }
             }
@@ -76,31 +86,37 @@ public class AttackAuraAbility implements Ability {
 
     @Override
     public void onDetach(Entity self, GameContext ctx) {
-        // 由於簡單實現中不容易取消訂閱，這裡留空
+        // 此簡單實現中無法取消訂閱，留空
     }
 
     @Override
     public StatContext modify(StatContext stats) {
-        // 此技能本身不修改屬性，只是控制光環效果的發放
+        // 光環源本身不修改屬性，只控制光環效果的發放
         return stats;
     }
 
     /**
      * 光環效果內部類
-     * 代表應用在實體上的實際光環效果
-     * 會修改實體的攻擊力，並在 PVP 模式下限制效果上限
+     * 
+     * 代表實際應用在盟友身上的光環效果。由光環源動態生成並附加到盟友。
+     * 在 PVP 模式下會自動限制效果上限（最多 +5%）以平衡遊戲。
+     *
+     * 注意：此類分類為 ATTACK_AURA，會參與互斥機制的比較。
+     * 效果 ID 通常為 "EFFECT_" + 光環源 ID。
      */
     public static class AuraEffectAbility implements Ability {
-        /** 效果唯一識別碼 */
+        /** 效果識別碼（通常為 "EFFECT_" + 光環源 ID） */
         private final String id;
-        /** 基礎攻擊力乘數 */
+        
+        /** 基礎攻擊力乘數（未經 PVP 限制） */
         private final double baseMultiplier;
-        /** 遊戲上下文 */
+        
+        /** 遊戲上下文：用於判斷當前遊戲模式 */
         private GameContext ctx;
 
         /**
          * 構造函數
-         * @param id 效果 ID
+         * @param id 效果識別碼
          * @param multiplier 攻擊力乘數
          */
         public AuraEffectAbility(String id, double multiplier) {
@@ -126,24 +142,25 @@ public class AttackAuraAbility implements Ability {
 
         @Override
         public void onDetach(Entity self, GameContext ctx) {
+            // 光環效果移除時的清理邏輯（此實現中無需特別處理）
         }
 
         @Override
         public StatContext modify(StatContext stats) {
-            // 計算實際的攻擊力乘數
-            double rate = baseMultiplier;
-            if (ctx.mode == Mode.PVP) {
-                // PVP 模式限制：光環效果上限 5%（即乘數 1.05）
-                // 假設 baseMultiplier 的格式像 1.10（代表 +10%）
-                if (rate > 1.05) {
-                    rate = 1.05;
+            // 計算實際應用的攻擊力乘數
+            double effectiveMultiplier = baseMultiplier;
+            
+            // PVP 模式限制：光環效果最多 +5%（乘數 1.05）
+            if (ctx != null && ctx.mode == Mode.PVP) {
+                if (effectiveMultiplier > 1.05) {
+                    effectiveMultiplier = 1.05;
                 }
             }
 
-            // 使用修飾器應用攻擊力乘數
-            MyModifier mod = new MyModifier();
-            mod.attackMul(rate);
-            return mod.apply(stats);
+            // 使用修飾器應用最終的攻擊力乘數
+            MyModifier modifier = new MyModifier();
+            modifier.attackMul(effectiveMultiplier);
+            return modifier.apply(stats);
         }
     }
 }

@@ -2,19 +2,14 @@ package game;
 
 /**
  * 日誌條目類
- *
- * 代表戰鬥日誌中的一條記錄。
- * 記錄了事件發生的時間、事件類型、觸發技能和效果描述。
- *
- * 日誌格式標準化，方便自動解析和分析。
- *
- * @author RuneRise Logging System
+ * 代表一條戰鬥日誌記錄
+ * 記錄了事件發生的時間、事件類型、技能名稱和效果描述
  */
 public class LogEntry {
-    /** 時間戳（時間步）：記錄事件發生的遊戲時刻 */
+    /** 時間戳（時間步） */
     public int t;
     
-    /** 事件類型（如 OnCrit, Tick, OnDamageTaken 等） */
+    /** 事件類型（如 OnCrit, Tick 等） */
     public String evt;
     
     /** 觸發該效果的技能 ID */
@@ -25,7 +20,6 @@ public class LogEntry {
 
     /**
      * 構造函數
-     * 
      * @param t 時間戳
      * @param evt 事件類型
      * @param ability 技能 ID
@@ -40,7 +34,6 @@ public class LogEntry {
 
     /**
      * 轉換為字符串表示
-     * 
      * @return 格式化的日誌字符串
      *         示例："t:1,evt: OnCrit,ability:CRIT_SHIELD,effect:100 shield"
      */

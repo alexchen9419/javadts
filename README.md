@@ -1,252 +1,82 @@
-# RuneRise 遊戲能力系統
+# RuneRise 遊戲能力系統詳細解析 (Game Ability System Deep Dive)
 
-![Status](https://img.shields.io/badge/Build-Passing-brightgreen) ![Tests](https://img.shields.io/badge/Tests-5%2F5-brightgreen) ![Java](https://img.shields.io/badge/Java-21-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+本專案實作了一個基於 **事件驅動 (Event-Driven)** 與 **組合模式 (Composition)** 的遊戲能力系統。以下是程式碼架構、核心機制與設計決策的詳細說明。
 
-> 一個完整的事件驅動 ARPG 戰鬥系統，展示高階物件導向設計和遊戲開發最佳實踐。
+## 1. 系統架構 (Architecture)
 
-**最新版本**: v2.1 (2026-01-05)  
-**編譯狀態**: ✅ 成功 (0 錯誤)  
-**測試狀態**: ✅ 全部通過 (5/5)
+系統依照 PlantUML 類別圖設計，將「能力」與「角色實體」解耦。
 
----
+- **Entity (實體)**: 
+  - 代表遊戲中的角色。它不繼承特定職業（如 Warrior, Mage），而是透過持有不同的 `Ability` 來定義行為。
+  - 核心職責：管理狀態（Shield, Buffs）、計算最終屬性（StatContext）。
+  
+- **GameEventBus (事件匯流排)**: 
+  - 負責傳遞遊戲事件（如 `OnCrit`, `Tick`）。
+  - **解耦關鍵**: `Ability` 不需要知道是誰觸發了事件，只需訂閱感興趣的事件類型。
 
-## 🎯 專案概述
+- **GameContext (遊戲情境)**:
+  - 包含全域資訊：`EventBus`、`AreaService` (區域查詢)、`Mode` (PVP/PVE)。
+  - 讓 Ability 在執行時能獲取環境資訊。
 
-RuneRise 是一個基於 **事件驅動架構 (Event-Driven Architecture)** 和 **組合模式 (Composition Pattern)** 的完整遊戲能力系統。該專案演示如何使用現代 Java 特性和設計模式構建可擴展、易維護的遊戲機制。
+## 2. 核心類別說明 (Core Classes)
 
-### 核心特性
+### `game` 套件
+- **StatContext**: 屬性容器（如 `attack`, `defense`）。支援複製與修改，用於計算最終數值。
+- **CooldownPolicy**: 封裝冷卻時間邏輯。
+  - `ready(entity)`: 檢查是否冷卻完畢。
+  - `consume(entity)`: 重置冷卻時間。
+- **Events**: 定義遊戲發生的事件資料結構 (`OnCrit`, `OnDamageTaken`, `Tick`)。
 
-- ✅ **事件驅動架構**：解耦的發布-訂閱模式，支援動態事件通訊
-- ✅ **動態能力系統**：支援技能的動態掛載與移除，無需修改核心代碼
-- ✅ **元素剋制系統**：完整的火水木三角剋制關係，支援倍率計算
-- ✅ **Buff 互斥機制**：自動處理同類型增益衝突，只取最強效果
-- ✅ **冷卻時間管理**：精確的毫秒級時間追蹤系統
-- ✅ **PVE/PVP 雙模式**：動態遊戲平衡，支援模式切換
-- ✅ **完整 GUI 介面**：Swing 圖形化戰鬥介面，即時狀態更新
-- ✅ **專業級註解**：超過 500 行 JavaDoc 文檔
-- ✅ **完整測試覆蓋**：單元測試與功能測試全部通過
+### `game.abilities` 套件
+- **CritShieldAbility**: 
+  - 展示了 **Trigger (觸發型)** 能力。
+  - 邏輯：監聽 `OnCrit` -> 檢查 CD -> 加盾 -> 寫 Log。
+- **AttackAuraAbility**:
+  - 展示了 **Aura (光環型)** 能力。
+  - 邏輯：監聽 `Tick` -> 搜尋範圍內隊友 (`AreaService`) -> 為隊友添加 `AuraEffectAbility`。
+  - **AuraEffectAbility**: 這是實際作用在隊友身上的 Buff，負責屬性加成與 PVP 判斷。
 
----
+## 3. 關鍵機制詳解 (Key Mechanisms)
 
-## 📋 快速開始
+### (1) 屬性計算與互斥 (Stat Calculation & Mutual Exclusion)
+這是系統中最複雜的部分，位於 `Entity.getFinalStats()`。
 
-### 系統需求
+- **需求**: 多個攻擊光環同時存在時，只取數值最大者（互斥），其他類型的 Buff 則可疊加。
+- **實作邏輯**:
+  1. 系統先將所有能力分類。
+  2. 針對 `BuffCategory.ATTACK_AURA` 類型的能力，進行由 `bestAura` 變數控制的 **預先模擬 (Dry Run)**：
+     - 對每個光環試算一次 `modify()`。
+     - 找出攻擊力加成最高的那個光環實例。
+  3. 正式計算屬性時，遍歷所有能力：
+     - 若是攻擊光環且**不是**最強的那個 -> **跳過 (不套用)**。
+     - 若是其他能力 -> **套用 (Apply)**。
+  這確保了同類光環不疊加，但不同類能力（如基礎屬性、藥水）可疊加。
 
-| 項目 | 版本 |
-|------|------|
-| **Java** | 21+ (建議使用 JDK-21) |
-| **OS** | Windows / macOS / Linux |
-| **RAM** | 512MB+ |
-| **顯示解析度** | 1280×720+ |
+### (2) PVP 模式動態調整 (Mode-Specific logic)
+位於 `AttackAuraAbility.AuraEffectAbility.modify()`。
 
-### 1️⃣ 編譯專案
+- **需求**: 在 PVP 模式下，光環效果上限為 5%。
+- **實作**:
+  - 在執行屬性修飾前，檢查 `ctx.mode`。
+  - 若是 `Mode.PVP`，強制將倍率 (Multiplier) 限制在 `1.05` 以下。
+  - 若是 `Mode.PVE`，則使用原始倍率 (如 `1.15`)。
+  - 這種設計讓數值平衡邏輯封裝在能力內部，外部系統無需干涉。
 
-在專案根目錄執行：
+### (3) 時間與冷卻 (Time & Cooldown)
+位於 `CooldownPolicy` 與 `CritShieldAbility`。
 
-```bash
-javac -encoding UTF-8 -d bin game/*.java game/*/*.java gui/*.java Main.java SimpleTest.java
-```
+- 使用 `System.currentTimeMillis()` 進行簡單的時間追蹤。
+- 當 `OnCrit` 發生時，若 `cd.ready()` 回傳 `true`，才觸發效果並呼叫 `cd.consume()` 更新上次觸發時間。這完美解決了「連續暴擊不應連續加盾」的需求。
 
-**編譯參數說明**:
-- `-encoding UTF-8`: 支援中文註解和字符
-- `-d bin`: 指定輸出目錄
+## 4. 執行流程範例 (Walkthrough)
 
-**預期結果**:
-```
-✅ 編譯成功
-✅ 生成 26 個 class 檔案
-✅ 0 編譯錯誤
-```
+當您執行 `Main.java` 時：
 
-### 2️⃣ 執行 GUI 程式
-
-```bash
-java -cp bin Main
-```
-
-程式將啟動 **RuneRise Game System** 圖形化介面。
-
-### 3️⃣ 運行單元測試
-
-```bash
-java -cp bin SimpleTest
-```
-
-將執行 5 項核心功能測試並顯示結果。
-
----
-
-## 🎮 使用指南
-
-### GUI 介面說明
-
-程式啟動後顯示兩個角色：
-
-| 角色 | 元素 | 初始技能 | 說明 |
-|------|------|---------|------|
-| **Player 1** | 🔥 火 | 暴擊護盾 | 暴擊時增加護盾 (5s 冷卻) |
-| **Player 2** | 🌲 木 | 無 | 可手動添加光環效果 |
-
-### 可用操作按鈕
-
-| 按鈕名稱 | 功能 | 預期效果 |
-|---------|------|---------|
-| **P1 Attack P2** | Player 1 攻擊 Player 2 | 計算傷害並應用元素倍率 |
-| **Trigger P1 Crit** | 觸發 Player 1 暴擊事件 | 增加護盾 |
-| **Setup P2 Aura** | 為 Player 2 啟用光環 | 應用 1.20x 攻擊加成 |
-| **Switch Mode** | PVE ↔ PVP 模式 | PVP 模式光環上限 5% |
-| **Game Tick** | 手動觸發時刻事件 | 刷新光環效果與狀態 |
+1. **情境 1 (無 CD)**: 兩次 `bus.publish(OnCrit)` -> 盾值增加 200。
+2. **情境 2 (有 CD)**: 兩次 `bus.publish(OnCrit)` (間隔極短) -> 盾值只增加 100 (第二次被 `CooldownPolicy` 擋下)。
+3. **情境 3 (光環)**: 發送 `Tick` -> `AttackAura` 找到隊友 -> 隊友獲得 Buff -> 攻擊力 100 變 110。
+4. **情境 4 (互斥)**: 隊友獲得更強光環 (+15%) -> `getFinalStats` 比較 +10% 與 +15% -> 選擇 +15% -> 攻擊力變 115 (而非 125 或 126.5)。
+5. **情境 5 (PVP)**: 切換 `ctx.mode = PVP` -> 再計算一次 -> +15% 被壓制為 +5% -> 攻擊力變 105。
 
 ---
-
-## 📂 專案結構
-
-```
-javadts/
-├── Main.java                          # 程式入口點 & 系統初始化
-├── SimpleTest.java                    # 單元測試 (5 個測試用例)
-├── README.md                          # 本文件
-├── 程式詳細說明文件.md                 # 詳細技術文檔 (400+ 行)
-├── TEST_REPORT.md                     # 完整測試報告
-├── COMMENT_IMPROVEMENTS.md            # 代碼改善記錄
-├── bin/                               # 編譯輸出目錄
-├── game/                              # 核心遊戲邏輯 (13 個類)
-│   ├── Ability.java                  # 技能介面
-│   ├── Entity.java                   # 角色實體
-│   ├── StatContext.java              # 屬性上下文
-│   ├── Element.java                  # 元素系統
-│   ├── DamageCalculator.java         # 傷害計算
-│   ├── GameContext.java              # 服務定位器
-│   ├── GameEventBus.java             # 事件匯流排
-│   ├── Events.java                   # 事件定義
-│   ├── CooldownPolicy.java           # 冷卻管理
-│   ├── BattleLog.java                # 戰鬥日誌
-│   ├── BuffCategory.java             # Buff 分類
-│   ├── Mode.java                     # 遊戲模式
-│   ├── MyModifier.java               # 屬性修飾器
-│   ├── AreaService.java              # 範圍服務
-│   └── abilities/                    # 具體技能實作
-│       ├── CritShieldAbility.java   # 暴擊護盾
-│       └── AttackAuraAbility.java   # 攻擊光環
-├── gui/                               # 圖形使用介面 (2 個類)
-│   ├── GameWindow.java               # 主視窗
-│   └── EntityPanel.java              # 角色面板
-└── topic/                             # 教材資源
-    ├── topic.txt                     # 主題說明
-    └── GameAbility_TeachingGuide.pdf # 教學指南
-```
-
----
-
-## ✅ 測試結果
-
-### 編譯狀況
-
-```
-Java 版本: JDK-21
-編譯結果: ✅ 成功
-- 總檔案: 18 個 Java 原始檔
-- 輸出: 26 個 class 檔案
-- 錯誤: 0
-- 警告: 0
-```
-
-### 功能測試 (5/5 通過)
-
-| 測試項目 | 狀態 | 說明 |
-|---------|------|------|
-| **Event Bus** | ✅ | 事件發布-訂閱正常運作 |
-| **Attribute System** | ✅ | 屬性複製和修改正常 |
-| **Cooldown System** | ✅ | 毫秒級時間追蹤正確 |
-| **Damage Calculation** | ✅ | 傷害公式和元素倍率正確 |
-| **Entity System** | ✅ | 護盾吸收優先正確 |
-
-詳細測試報告見 [TEST_REPORT.md](TEST_REPORT.md)
-
----
-
-## 🔍 主要功能深入
-
-### 1. 元素剋制系統
-
-```
-火 (Fire)
- ├─ 剋制 > 木 (Wood)  [1.5x 傷害]
- └─ 被剋制 < 水 (Water)
-
-木 (Wood)
- ├─ 剋制 > 水 (Water)  [1.5x 傷害]
- └─ 被剋制 < 火 (Fire)
-
-水 (Water)
- ├─ 剋制 > 火 (Fire)   [1.5x 傷害]
- └─ 被剋制 < 木 (Wood)
-```
-
-### 2. Buff 互斥機制
-
-當角色同時受到多個同類型 Buff 時，系統自動選擇最強效果。
-
-### 3. 冷卻時間系統
-
-基於系統時鐘的精確時間管理，支援多個角色獨立計時。
-
-### 4. PVP 平衡機制
-
-在 PVP 模式下，所有光環效果自動限制為 5% (1.05x)。
-
----
-
-## 📖 文檔資源
-
-| 文件 | 用途 | 內容 |
-|------|------|------|
-| **程式詳細說明文件.md** | 完整技術文檔 | 架構、設計模式、代碼詳解 (400+ 行) |
-| **TEST_REPORT.md** | 測試報告 | 編譯結果、測試用例、品質指標 |
-| **COMMENT_IMPROVEMENTS.md** | 改善記錄 | 代碼註解和結構優化 |
-
----
-
-## 🐛 已知問題與修復
-
-### v2.1 修復清單 (2026-01-05)
-
-所有 6 個主要檔案中的結構問題已修復，編譯成功，所有測試通過。
-
-詳見：[程式詳細說明文件.md](程式詳細說明文件.md)
-
----
-
-## 🎓 學習價值
-
-本專案適合用於學習：
-
-- ✅ 事件驅動架構設計
-- ✅ Java 遊戲開發基礎
-- ✅ 設計模式實踐應用
-- ✅ GUI 編程 (Swing)
-- ✅ 物件導向設計原則
-- ✅ 遊戲平衡機制
-- ✅ 單元測試編寫
-
----
-
-## 📝 版本資訊
-
-**v2.1 (2026-01-05)**
-- ✅ 編譯成功 (0 錯誤，26 個 class)
-- ✅ 功能測試全部通過 (5/5)
-- ✅ 修復 6 個主要檔案結構問題
-
-**v2.0 (2026-01-03)**
-- 初始發布版本
-
----
-
-## 📄 授權
-
-MIT License - 自由使用和修改
-
----
-
-**⭐ 如果本專案對您有幫助，請給個 Star！**
+此文件詳細解釋了程式碼的設計思路与運作原理，可作為後續開發或教學的參考。

@@ -12,24 +12,20 @@ import game.*;
  * - CritShield(100, 10s)  - 每次暴擊加 100 護盾，10秒冷卻
  */
 public class CritShieldAbility implements Ability {
-    /** 技能唯一識別碼：用於日誌記錄和技能查詢 */
+    /** 技能唯一識別碼 */
     private final String id;
-    
-    /** 每次觸發增加的護盾點數 */
+    /** 每次觸發增加的護盾值 */
     private final int shieldAmount;
-    
-    /** 冷卻管理策略：控制技能的觸發頻率 */
+    /** 冷卻管理策略 */
     private final CooldownPolicy cd;
-    
-    /** 遊戲上下文：保存對事件總線的參考 */
+    /** 遊戲上下文 */
     private GameContext ctx;
 
     /**
      * 構造函數
-     * 
-     * @param id 技能的唯一識別碼
-     * @param shieldAmount 每次觸發增加的護盾量
-     * @param cooldownMs 冷卻時間（毫秒，0 表示無冷卻）
+     * @param id 技能 ID
+     * @param shieldAmount 護盾數量
+     * @param cooldownMs 冷卻時間（毫秒）
      */
     public CritShieldAbility(String id, int shieldAmount, long cooldownMs) {
         this.id = id;
@@ -51,18 +47,20 @@ public class CritShieldAbility implements Ability {
     @Override
     public void onAttach(Entity self, GameContext ctx) {
         this.ctx = ctx;
-        // 訂閱暴擊事件，設定在每次暴擊時的回應行為
+        // 訂閱暴擊事件
         ctx.bus.subscribe(Events.OnCrit.class, event -> {
-            // 只有當暴擊者就是持有者時才處理
+            // 檢查暴擊者是否為持有者自己
             if (event.attacker == self) {
-                // 檢查是否已過冷卻時間
+                // 檢查冷卻是否完成
                 if (cd.ready(self)) {
-                    // 為持有者增加護盾值
+                    // 增加護盾
                     self.addShield(shieldAmount);
-                    // 開始新的冷卻週期
+                    // 消耗冷卻
                     cd.consume(self);
-                    // 記錄此事件到戰鬥日誌
-                    // TODO：時間戳應來自全局遊戲時鐘（目前為簡化使用 0）
+                    // 記錄日誌
+                    // 理想情況下，時間戳 't' 應該來自全局時間管理器
+                    // 這裡使用 0 作為占位符
+                    // 日誌格式："t:1,evt: OnCrit,ability:CRIT_SHIELD,effect:100 shield"
                     self.log.add(new LogEntry(0, "OnCrit", id, shieldAmount + " shield"));
                 }
             }
@@ -77,7 +75,7 @@ public class CritShieldAbility implements Ability {
 
     @Override
     public StatContext modify(StatContext stats) {
-        // 此技能為被動觸發型，不修改屬性，只產生護盾值
+        // 此技能不修改屬性，只是觸發效果
         return stats;
     }
 }
